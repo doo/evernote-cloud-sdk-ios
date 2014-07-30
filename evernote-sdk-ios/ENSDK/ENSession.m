@@ -457,6 +457,11 @@ static NSString * DeveloperToken, * NoteStoreUrl;
 
 #pragma mark - listNotebooks
 
+- (void)invalidateNotesCache {
+    self.notebooksCache = nil;
+    self.notebooksCacheDate = nil;
+}
+
 // Notes on the flow of this process, because it's somewhat byzantine:
 // 1. Get all of the user's personal notebooks.
 // 2. Get all of the user's linked notebooks. These will include business and/or shared notebooks.

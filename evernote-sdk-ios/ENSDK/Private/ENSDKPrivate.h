@@ -40,6 +40,20 @@ extern NSString * const ENBootstrapProfileNameChina;
 @property (nonatomic, readonly) EDAMUserID userID;
 @end
 
+@interface ENSession (DooPrivate)
+
+/**
+ This information requires for creation of business notebook 
+ */
+- (EDAMAuthenticationResult *)validBusinessAuthenticationResult;
+
+/**
+  We need to invalidate cache in case we created new notebook
+ */
+- (void)invalidateNotesCache;
+
+@end
+
 @interface ENNotebook (Private)
 @property (nonatomic, readonly) NSString * guid;
 @property (nonatomic, readonly) BOOL isLinked;
