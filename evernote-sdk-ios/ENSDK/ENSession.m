@@ -457,7 +457,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
 
 #pragma mark - listNotebooks
 
-- (void)invalidateNotesCache {
+- (void)invalidateNotebooksCache {
     self.notebooksCache = nil;
     self.notebooksCacheDate = nil;
 }

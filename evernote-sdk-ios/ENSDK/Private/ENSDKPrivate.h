@@ -50,7 +50,7 @@ extern NSString * const ENBootstrapProfileNameChina;
 /**
   We need to invalidate cache in case we created new notebook
  */
-- (void)invalidateNotesCache;
+- (void)invalidateNotebooksCache;
 
 @end
 
