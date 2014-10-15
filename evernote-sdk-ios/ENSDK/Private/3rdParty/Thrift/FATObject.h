@@ -41,4 +41,7 @@
 + (NSString *) structName;
 + (NSArray *) structFields;
 
+/** Only for analytics purpose. */
+@property(nonatomic, copy) NSString *doo_exceptionLabel;
+
 @end

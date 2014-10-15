@@ -375,6 +375,10 @@
           id fieldValue = [self _readValueForField:aResponseType
                                       fromProtocol:inProtocol];
           if (fieldValue != nil) {
+              if ([fieldValue isKindOfClass:[FATException class]] &&
+                  [fieldValue respondsToSelector:@selector(doo_exceptionLabel)]) {
+                  ((FATException*)fieldValue).doo_exceptionLabel = message;
+              }
             [responseObjects addObject:fieldValue];
           }
           matched = YES;

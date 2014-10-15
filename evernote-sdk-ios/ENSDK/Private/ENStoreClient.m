@@ -222,6 +222,15 @@ NSString * ENStoreClientDidFailWithAuthenticationErrorNotification = @"ENStoreCl
             }
         }
         
+        // It's added only for analytics purpose to get know which method causing the problems.
+        if ([exception isKindOfClass:[FATException class]]
+            && [exception respondsToSelector:@selector(doo_exceptionLabel)]) {
+            FATException *fatException = (FATException *)exception;
+            if (fatException.doo_exceptionLabel != nil) {
+                userInfo[@"doo_exceptionLabel"] = fatException.doo_exceptionLabel;
+            }
+        }
+        
         return [NSError errorWithDomain:ENErrorDomain code:sanitizedErrorCode userInfo:userInfo];
     }
     return nil;
