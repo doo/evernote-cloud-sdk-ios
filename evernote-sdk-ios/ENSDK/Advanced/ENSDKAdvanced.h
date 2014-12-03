@@ -33,9 +33,15 @@
 #import "ENPreferencesStore.h"
 #import "NSDate+EDAMAdditions.h"
 #import "ENMLWriter.h"
+#import "ENCredentials.h"
+
 @class ENNoteStoreClient;
 
 @interface ENSession (Advanced)
+
+- (ENCredentials *)primaryCredentials;
+
+
 /**
  * Indicates if your app is capable of supporting linked/business notebooks as app notebook destinations.
  * Defaults to YES, as the non-advanced interface on ENSession will handle these transparently. If you're
