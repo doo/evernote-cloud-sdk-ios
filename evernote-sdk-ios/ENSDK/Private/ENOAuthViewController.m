@@ -29,6 +29,8 @@
 #import "ENOAuthViewController.h"
 #import "ENSDKPrivate.h"
 
+#import "OnePasswordExtension.h"
+
 @interface ENOAuthViewController() <UIWebViewDelegate>
 
 @property (nonatomic, strong) NSURL *authorizationURL;
@@ -97,6 +99,22 @@
     [self.webView addSubview:self.activityIndicator];
     [self updateUIForNewProfile:self.currentProfileName
            withAuthorizationURL:self.authorizationURL];
+    
+    if ([[OnePasswordExtension sharedExtension] isAppExtensionAvailable]) {
+        UIImage *onePasswordIcon = [UIImage imageNamed:@"onepassword-navbar"];
+        self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc]
+                                                          initWithImage:onePasswordIcon
+                                                          style:UIBarButtonItemStyleBordered
+                                                          target:self
+                                                          action:@selector(onePasswordButtonTapped:)];
+    }
+}
+
+- (void)onePasswordButtonTapped:(id)sender {
+    [[OnePasswordExtension sharedExtension] fillLoginIntoWebView:self.webView
+                                               forViewController:self
+                                                          sender:sender
+                                                      completion:nil];
 }
 
 - (void)cancel:(id)sender
