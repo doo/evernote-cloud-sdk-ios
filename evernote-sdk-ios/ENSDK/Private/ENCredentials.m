@@ -28,6 +28,7 @@
 
 #import "ENCredentials.h"
 #import "ENSSKeychain.h"
+#import "Analytics.h"
 
 @interface ENCredentials()
 
@@ -97,6 +98,7 @@ authenticationResult:(EDAMAuthenticationResult *)authenticationResult
     NSError *error;
     NSString *token = [ENSSKeychain passwordForService:self.host account:self.edamUserId error:&error];
     if (!token) {
+        [Analytics trackEvernoteKeychainSaveError:error];
         NSLog(@"Error getting password from keychain: %@", error);
     }
     return token;
