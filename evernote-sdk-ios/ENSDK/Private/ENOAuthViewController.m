@@ -81,7 +81,7 @@
                                                                                 target:self
                                                                                 action:@selector(cancel:)];
     
-    self.navigationItem.rightBarButtonItem = cancelItem;
+    self.navigationItem.leftBarButtonItem = cancelItem;
     
     // adding an activity indicator
     self.activityIndicator = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
@@ -102,7 +102,7 @@
     
     if ([[OnePasswordExtension sharedExtension] isAppExtensionAvailable]) {
         UIImage *onePasswordIcon = [UIImage imageNamed:@"onepassword-navbar"];
-        self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc]
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
                                                           initWithImage:onePasswordIcon
                                                           style:UIBarButtonItemStyleBordered
                                                           target:self
