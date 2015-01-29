@@ -77,11 +77,12 @@ authenticationResult:(EDAMAuthenticationResult *)authenticationResult
 {
     // auth token gets saved to the keychain
     NSError *error;
-    BOOL success = [ENSSKeychain setPassword:_authenticationToken 
-                                forService:self.host
-                                   account:self.edamUserId 
-                                     error:&error];
+    BOOL success = [ENSSKeychain setPassword:_authenticationToken
+                                  forService:self.host
+                                     account:self.edamUserId
+                                       error:&error];
     if (!success) {
+        [Analytics trackEvernoteKeychainSaveError:error];
         NSLog(@"Error saving to keychain: %@ %ld", error, (long)error.code);
         return NO;
     } 
@@ -98,7 +99,6 @@ authenticationResult:(EDAMAuthenticationResult *)authenticationResult
     NSError *error;
     NSString *token = [ENSSKeychain passwordForService:self.host account:self.edamUserId error:&error];
     if (!token) {
-        [Analytics trackEvernoteKeychainSaveError:error];
         NSLog(@"Error getting password from keychain: %@", error);
     }
     return token;
