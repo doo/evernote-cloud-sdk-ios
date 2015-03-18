@@ -104,7 +104,7 @@
         UIImage *onePasswordIcon = [UIImage imageNamed:@"onepassword-navbar"];
         self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
                                                           initWithImage:onePasswordIcon
-                                                          style:UIBarButtonItemStyleBordered
+                                                          style:UIBarButtonItemStylePlain
                                                           target:self
                                                           action:@selector(onePasswordButtonTapped:)];
     }
