@@ -29,16 +29,17 @@
 #import "ENSaveToEvernoteActivity.h"
 #import "ENSaveToEvernoteViewController.h"
 #import "ENSDK.h"
+#import "ENTheme.h"
+#import "ENSDKPrivate.h"
 
 @interface ENSaveToEvernoteActivity () <ENSendToEvernoteViewControllerDelegate>
-@property (nonatomic, strong) ENNote * preparedNote;
 @property (nonatomic, strong) NSArray * notebooks;
 @end
 
 @implementation ENSaveToEvernoteActivity
 + (UIActivityCategory)activityCategory
 {
-    return UIActivityCategoryShare;
+    return UIActivityCategoryAction;
 }
 
 - (NSString *)activityType
@@ -48,7 +49,7 @@
 
 - (NSString *)activityTitle
 {
-    return NSLocalizedString(@"Save to Evernote", @"Save to Evernote");
+    return ENSDKLocalizedString(@"Save to Evernote", @"Save to Evernote");
 }
 
 - (UIImage *)activityImage
@@ -58,15 +59,11 @@
 
 - (BOOL)canPerformWithActivityItems:(NSArray *)activityItems
 {
-    // A prepared ENNote is allowed if it's the only item given.
-    if (activityItems.count == 1 && [activityItems[0] isKindOfClass:[ENNote class]]) {
-        return YES;
-    }
-
     for (id item in activityItems) {
         if ([item isKindOfClass:[NSString class]] ||
             [item isKindOfClass:[UIImage class]] ||
-            [item isKindOfClass:[ENResource class]]) {
+            [item isKindOfClass:[ENResource class]] ||
+            [item isKindOfClass:[ENNote class]]) {
             return YES;
         }
     }
@@ -76,15 +73,14 @@
 
 - (void)prepareWithActivityItems:(NSArray *)activityItems
 {
-    NSMutableArray * strings = [NSMutableArray array];
-    NSMutableArray * images = [NSMutableArray array];
-    NSMutableArray * resources = [NSMutableArray array];
-    
-    if (activityItems.count == 1 && [activityItems[0] isKindOfClass:[ENNote class]]) {
-        self.preparedNote = activityItems[0];
+    if (self.preparedNote != nil) {
         return;
     }
     
+    NSMutableArray * strings = [NSMutableArray array];
+    NSMutableArray * images = [NSMutableArray array];
+    NSMutableArray * resources = [NSMutableArray array];
+        
     for (id item in activityItems) {
         if ([item isKindOfClass:[NSString class]]) {
             [strings addObject:item];
@@ -92,6 +88,11 @@
             [images addObject:item];
         } else if ([item isKindOfClass:[ENResource class]]) {
             [resources addObject:item];
+        } else if ([item isKindOfClass:[NSURL class]]) {
+            [strings addObject:[(NSURL *)item absoluteString]];
+        } else if ([item isKindOfClass:[ENNote class]]) {
+            self.preparedNote = (ENNote *)item;
+            return;
         }
     }
     
@@ -138,7 +139,11 @@
 
 - (NSString *)defaultNoteTitleForViewController:(ENSaveToEvernoteViewController *)viewController
 {
-    return self.noteTitle;
+    if (self.preparedNote.title) {
+        return self.preparedNote.title;
+    } else {
+        return self.noteTitle;
+    }
 }
 
 - (void)viewController:(ENSaveToEvernoteViewController *)viewController didFinishWithSuccess:(BOOL)success uploadError:(NSError *)error

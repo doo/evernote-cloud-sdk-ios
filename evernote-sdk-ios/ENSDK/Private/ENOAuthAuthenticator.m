@@ -72,6 +72,7 @@ NSString * ENOAuthAuthenticatorAuthInfoAppNotebookIsLinked = @"ENOAuthAuthentica
 @property (nonatomic, copy) NSString * tokenSecret;
 @property (nonatomic, assign) BOOL isMultitaskLoginDisabled;
 @property (nonatomic, assign) BOOL isSwitchingInProgress;
+@property (nonatomic, assign) BOOL isActiveBecauseOfCallback;
 
 @property (nonatomic, assign) BOOL userSelectedLinkedAppNotebook;
 
@@ -175,9 +176,7 @@ NSString * ENOAuthAuthenticatorAuthInfoAppNotebookIsLinked = @"ENOAuthAuthentica
     NSURLConnection * connection = [NSURLConnection connectionWithRequest:tempTokenRequest delegate:self];
     if (!connection) {
         // can't make connection, so immediately fail.
-        [self completeAuthenticationWithError:[NSError errorWithDomain:ENErrorDomain
-                                                                  code:ENErrorCodeConnectionFailed
-                                                              userInfo:nil]];
+        [self completeAuthenticationWithError:[ENError connectionFailedError]];
     }
 }
 
@@ -316,7 +315,8 @@ NSString * ENOAuthAuthenticatorAuthInfoAppNotebookIsLinked = @"ENOAuthAuthentica
     
     if (state == ENOAuthAuthenticatorStateLoggedOut ||
         state == ENOAuthAuthenticatorStateAuthenticated ||
-        state == ENOAuthAuthenticatorStateGotCallback) {
+        state == ENOAuthAuthenticatorStateGotCallback ||
+        self.isActiveBecauseOfCallback) {
         return;
     }
     [self gotCallbackURL:nil];
@@ -396,7 +396,7 @@ NSString * ENOAuthAuthenticatorAuthInfoAppNotebookIsLinked = @"ENOAuthAuthentica
         // This minimizes the chance that the user will have to enter his or
         // her credentials in order to authorize the application.
         UIDevice *device = [UIDevice currentDevice];
-        if([self isEvernoteInstalled] == NO) {
+        if(IsEvernoteInstalled() == NO) {
             self.isMultitaskLoginDisabled = YES;
         }
         // This is an override intented for testing/sandbox environments. 
@@ -648,9 +648,19 @@ NSString * ENOAuthAuthenticatorAuthInfoAppNotebookIsLinked = @"ENOAuthAuthentica
     // Check if we need to switch profiles
     else if ([hostName isEqualToString:[url scheme]] == YES
              && [@"incorrectProfile" isEqualToString:[url host]] == YES) {
+        [self enableIsActiveBecauseOfCallback];
         return [self canHandleSwitchProfileURL:url];
     }
     return  canHandle;
+}
+
+- (void)enableIsActiveBecauseOfCallback {
+    self.isActiveBecauseOfCallback = YES;
+    [self performSelector:@selector(disableIsActiveBecauseOfCallback) withObject:nil afterDelay:2.0];
+}
+
+- (void)disableIsActiveBecauseOfCallback {
+    self.isActiveBecauseOfCallback = NO;
 }
 
 - (BOOL) canHandleSwitchProfileURL:(NSURL *)url {
@@ -696,15 +706,8 @@ NSString * ENOAuthAuthenticatorAuthInfoAppNotebookIsLinked = @"ENOAuthAuthentica
     NSURLConnection * connection = [NSURLConnection connectionWithRequest:authTokenRequest delegate:self];
     if (!connection) {
         // can't make connection, so immediately fail.
-        [self completeAuthenticationWithError:[NSError errorWithDomain:ENErrorDomain
-                                                                  code:ENErrorCodeConnectionFailed
-                                                              userInfo:nil]];
+        [self completeAuthenticationWithError:[ENError connectionFailedError]];
     };
-}
-
-- (BOOL)isEvernoteInstalled
-{
-    return [[UIApplication sharedApplication] canOpenURL:[NSURL URLWithString:@"en://"]];
 }
 
 - (void)loadingViewControllerDidCancel:(ENLoadingViewController *)viewController

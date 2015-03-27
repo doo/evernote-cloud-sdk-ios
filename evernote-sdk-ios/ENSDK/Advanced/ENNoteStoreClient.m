@@ -30,8 +30,9 @@
 #import "ENSDKPrivate.h"
 #import "ENAuthCache.h"
 #import "EDAMNoteStoreClient+Utilities.h"
-#import "THTTPClient.h"
-#import "TBinaryProtocol.h"
+#import "ENTHTTPClient.h"
+#import "ENTBinaryProtocol.h"
+#import "ENSession.h"
 
 // This is the Evernote standard reasonable recommendation for a single findNotes call and won't break in future.
 #define FIND_NOTES_DEFAULT_MAX_NOTES 100
@@ -114,8 +115,8 @@
     if (!_client) {
         NSString * noteStoreUrl = [self noteStoreUrl];
         NSURL * url = [NSURL URLWithString:noteStoreUrl];
-        THTTPClient * transport = [[THTTPClient alloc] initWithURL:url];
-        TBinaryProtocol * protocol = [[TBinaryProtocol alloc] initWithTransport:transport];
+        ENTHTTPClient * transport = [[ENTHTTPClient alloc] initWithURL:url];
+        ENTBinaryProtocol * protocol = [[ENTBinaryProtocol alloc] initWithTransport:transport];
         _client = [[EDAMNoteStoreClient alloc] initWithProtocol:protocol];
         
         // Bind progress handlers if they are pending attachment.
@@ -215,6 +216,7 @@
                success:(void(^)(EDAMNotebook *notebook))success
                failure:(void(^)(NSError *error))failure
 {
+    [[ENSession sharedSession] listNotebooks_cleanCache];
     [self invokeAsyncIdBlock:^id {
         return [self.client createNotebook:self.authenticationToken notebook:notebook];
     } success:success failure:failure];
@@ -350,7 +352,7 @@
 }
 
 #pragma mark - NoteStore notes methods
-- (void)findRealtedWithQuery:(EDAMRelatedQuery *)query
+- (void)findRelatedWithQuery:(EDAMRelatedQuery *)query
                   resultSpec:(EDAMRelatedResultSpec *)resultSpec
                      success:(void(^)(EDAMRelatedResult *result))success
                      failure:(void(^)(NSError *error))failure
@@ -849,6 +851,10 @@ withResourcesAlternateData:(BOOL)withResourcesAlternateData
     [self invokeAsyncInt32Block:^int32_t{
         return [self.client setSharedNotebookRecipientSettings:self.authenticationToken sharedNotebookId:sharedNotebookId recipientSettings:recipientSettings];
     } success:success failure:failure];
+}
+
+- (void) cancelFirstOperation {
+    [[self client] cancel];
 }
 
 #pragma mark - Protected routines

@@ -33,6 +33,7 @@
 #import "ENTheme.h"
 #import "RMSTokenView.h"
 #import "ENNotebookPickerView.h"
+#import "ENSDKPrivate.h"
 
 #define kTitleViewHeight        50.0
 #define kTagsViewHeight         44.0
@@ -51,6 +52,7 @@ CGFloat kTextLeftPadding = 20;
 @property (nonatomic, strong) ENNotebookPickerView *notebookPickerView;
 @property (nonatomic, strong) ENNotebookPickerButton * notebookPickerButton;
 @property (nonatomic, strong) RMSTokenView * tagsView;
+@property (nonatomic, strong) UIWebView * noteView;
 
 @property (nonatomic, strong) NSArray * notebookList;
 @property (nonatomic, strong) ENNotebook * currentNotebook;
@@ -71,6 +73,7 @@ CGFloat kTextLeftPadding = 20;
     UIView *paddingView1 = [[UIView alloc] initWithFrame:CGRectMake(0, 0, kTextLeftPadding, 0)];
     titleField.leftView = paddingView1;
     titleField.leftViewMode = UITextFieldViewModeAlways;
+    titleField.clearButtonMode = UITextFieldViewModeWhileEditing;
     [self.view addSubview:titleField];
     self.titleField = titleField;
     
@@ -97,30 +100,32 @@ CGFloat kTextLeftPadding = 20;
     [divider3 setBackgroundColor:[ENTheme defaultSeparatorColor]];
     [self.view addSubview:divider3];
     
-    NSString *format = [NSString stringWithFormat:@"V:[titleField(%f)][divider1(%f)][tagsView(>=%f)][notebookView(%f)][divider3(%f)]", kTitleViewHeight, OnePxHeight(), kTagsViewHeight, kNotebookViewHeight, OnePxHeight()];
+    UIWebView *noteView = [[UIWebView alloc] initWithFrame:CGRectZero];
+    noteView.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:noteView];
+    self.noteView = noteView;
+    
+    NSString *format = [NSString stringWithFormat:@"V:|[titleField(%f)][divider1(%f)][tagsView(>=%f)][notebookView(%f)][divider3(%f)][noteView]|", kTitleViewHeight, OnePxHeight(), kTagsViewHeight, kNotebookViewHeight, OnePxHeight()];
     [self.view addConstraints: [NSLayoutConstraint constraintsWithVisualFormat:format
                                                                        options:NSLayoutFormatAlignAllLeft | NSLayoutFormatAlignAllRight
                                                                        metrics:nil
-                                                                         views:NSDictionaryOfVariableBindings(titleField, divider1, tagsView, notebookView, divider3)]];
+                                                                         views:NSDictionaryOfVariableBindings(titleField, divider1, tagsView, notebookView, divider3, noteView)]];
     [self.view addConstraints: [NSLayoutConstraint constraintsWithVisualFormat:@"H:|[titleField]|"
                                                                        options:0
                                                                        metrics:nil
                                                                          views:NSDictionaryOfVariableBindings(titleField)]];
     
-    self.navigationItem.title = NSLocalizedString(@"Save To Evernote", @"Save To Evernote");
+    self.navigationItem.title = ENSDKLocalizedString(@"Save to Evernote", @"Save to Evernote");
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(cancel:)];
     
-    self.saveButtonItem = [[UIBarButtonItem alloc] initWithTitle:NSLocalizedString(@"Save", @"Save") style:UIBarButtonItemStylePlain target:self action:@selector(save:)];
+    self.saveButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSave target:self action:@selector(save:)];
     self.navigationItem.rightBarButtonItem = self.saveButtonItem;
-    self.navigationItem.backBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"Back" style:UIBarButtonItemStylePlain target:nil action:nil];
     
     self.saveButtonItem.enabled = NO;
     self.titleField.text = [self.delegate defaultNoteTitleForViewController:self];
-    if (self.titleField.text.length == 0) {
-        [self.titleField setPlaceholder:NSLocalizedString(@"Add Title", @"Add Title")];
-    }
+    [self.titleField setPlaceholder:ENSDKLocalizedString(@"Add Title", @"Add Title")];
 
-    self.tagsView.placeholder = NSLocalizedString(@"Add Tag", @"Add Tag");
+    self.tagsView.placeholder = ENSDKLocalizedString(@"Add Tag", @"Add Tag");
 }
 
 - (void)viewDidLoad
@@ -128,7 +133,7 @@ CGFloat kTextLeftPadding = 20;
     [super viewDidLoad];
     
     // Kick off the notebook list fetch.
-    [[ENSession sharedSession] listNotebooksWithCompletion:^(NSArray *notebooks, NSError *listNotebooksError) {
+    [[ENSession sharedSession] listWritableNotebooksWithCompletion:^(NSArray *notebooks, NSError *listNotebooksError) {
         self.notebookList = notebooks;
         // Populate the notebook picker with the default notebook.
         for (ENNotebook * notebook in notebooks) {
@@ -139,6 +144,17 @@ CGFloat kTextLeftPadding = 20;
             }
         }
         self.saveButtonItem.enabled = YES;
+    }];
+    
+    ENNote * note = [self.delegate noteForViewController:self];
+    for (NSString *tagName in note.tagNames) {
+        [self.tagsView addTokenWithText:tagName];
+    }
+    [note generateWebArchiveData:^(NSData *data) {
+        [self.noteView loadData:data
+                      MIMEType:ENWebArchiveDataMIMEType
+              textEncodingName:nil
+                       baseURL:nil];
     }];
 }
 
@@ -181,7 +197,7 @@ CGFloat kTextLeftPadding = 20;
     // Populate the metadata fields we offered.
     note.title = self.titleField.text;
     if (note.title.length == 0) {
-        note.title = NSLocalizedString(@"Untitled note", @"Untitled note");
+        note.title = ENSDKLocalizedString(@"Untitled note", @"Untitled note");
     }
     
     NSArray * tags = [self.tagsView tokens];

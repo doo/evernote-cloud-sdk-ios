@@ -39,6 +39,7 @@
 #import "NSDate+EDAMAdditions.h"
 #import "NSString+URLEncoding.h"
 #import "ENShareURLHelper.h"
+#import "ENCommonUtils.h"
 
 // Strings visible publicly.
 NSString * const ENSessionHostSandbox = @"sandbox.evernote.com";
@@ -49,10 +50,10 @@ NSString * const ENSessionDidUnauthenticateNotification = @"ENSessionDidUnauthen
 static NSString * ENSessionBootstrapServerBaseURLStringCN  = @"app.yinxiang.com";
 static NSString * ENSessionBootstrapServerBaseURLStringUS  = @"www.evernote.com";
 
-static NSString * ENSessionPreferencesFilename = @"com.evernote.evernote-sdk-ios.plist";
 static NSString * ENSessionPreferencesCredentialStore = @"CredentialStore";
 static NSString * ENSessionPreferencesCurrentProfileName = @"CurrentProfileName";
 static NSString * ENSessionPreferencesUser = @"User";
+static NSString * ENSessionPreferencesBusinessUser = @"BusinessUser";
 static NSString * ENSessionPreferencesAppNotebookIsLinked = @"AppNotebookIsLinked";
 static NSString * ENSessionPreferencesLinkedAppNotebook = @"LinkedAppNotebook";
 static NSString * ENSessionPreferencesSharedAppNotebook = @"SharedAppNotebook";
@@ -64,7 +65,6 @@ static NSUInteger ENSessionNotebooksCacheValidity = (5 * 60);   // 5 minutes
 
 @interface ENSessionListNotebooksContext : NSObject
 @property (nonatomic, strong) NSMutableArray * resultNotebooks;
-@property (nonatomic, strong) NSMutableDictionary * guidsToResultNotebooks;
 @property (nonatomic, strong) NSMutableArray * linkedPersonalNotebooks;
 @property (nonatomic, strong) NSMutableDictionary * sharedBusinessNotebooks;
 @property (nonatomic, strong) NSCountedSet * sharedBusinessNotebookGuids;
@@ -115,18 +115,24 @@ static NSUInteger ENSessionNotebooksCacheValidity = (5 * 60);   // 5 minutes
 @property (nonatomic, copy) NSString * sessionHost;
 @property (nonatomic, assign) BOOL isAuthenticated;
 @property (nonatomic, strong) EDAMUser * user;
+@property (nonatomic, strong) EDAMUser * businessUser;
 @property (nonatomic, strong) ENPreferencesStore * preferences;
 @property (nonatomic, strong) NSString * primaryAuthenticationToken;
 @property (nonatomic, strong) ENUserStoreClient * userStore;
 @property (nonatomic, strong) ENNoteStoreClient * primaryNoteStore;
-@property (nonatomic, strong) ENNoteStoreClient * businessNoteStore;
-@property (nonatomic, strong) NSString * businessShardId;
+@property (nonatomic, strong) ENBusinessNoteStoreClient * businessNoteStore;
 @property (nonatomic, strong) ENAuthCache * authCache;
 @property (nonatomic, strong) NSArray * notebooksCache;
 @property (nonatomic, strong) NSDate * notebooksCacheDate;
 @property (nonatomic, strong) dispatch_queue_t thumbnailQueue;
 
 @property (nonatomic, strong) ENUserStoreClient * userStorePendingRevocation;
+
+@property (nonatomic, assign) long long personalUploadUsage;
+@property (nonatomic, assign) long long personalUploadLimit;
+@property (nonatomic, assign) long long businessUploadUsage;
+@property (nonatomic, assign) long long businessUploadLimit;
+
 @end
 
 @implementation ENSession
@@ -134,6 +140,9 @@ static NSUInteger ENSessionNotebooksCacheValidity = (5 * 60);   // 5 minutes
 static NSString * SessionHostOverride;
 static NSString * ConsumerKey, * ConsumerSecret;
 static NSString * DeveloperToken, * NoteStoreUrl;
+static NSString * SecurityApplicationGroupIdentifier;
+static NSString * _keychainGroup, * _keychainAccessGroup;
+static BOOL disableRefreshingNotebooksCacheOnLaunch;
 
 + (void)setSharedSessionConsumerKey:(NSString *)key
                      consumerSecret:(NSString *)secret
@@ -165,6 +174,27 @@ static NSString * DeveloperToken, * NoteStoreUrl;
         session = [[ENSession alloc] init];
     });
     return session;
+}
+
++ (void)setDisableRefreshingNotebooksCacheOnLaunch:(BOOL)disable
+{
+    disableRefreshingNotebooksCacheOnLaunch = disable;
+}
+
++ (void) setSecurityApplicationGroupIdentifier:(NSString*)securityApplicationGroupIdentifier
+{
+    SecurityApplicationGroupIdentifier = securityApplicationGroupIdentifier;
+}
+
++ (void) setKeychainGroup:(NSString*)keychainGroup
+{
+    _keychainGroup = keychainGroup;
+    _keychainAccessGroup = [[[self bundleSeedID] stringByAppendingString:@"."] stringByAppendingString:_keychainGroup];
+}
+
++ (NSString*) keychainAccessGroup
+{
+    return _keychainAccessGroup;
 }
 
 + (BOOL)checkSharedSessionSettings
@@ -212,7 +242,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
 - (void)startup
 {
     self.logger = [[ENSessionDefaultLogger alloc] init];
-    self.preferences = [[ENPreferencesStore alloc] initWithStoreFilename:ENSessionPreferencesFilename];
+    self.preferences = SecurityApplicationGroupIdentifier ? [ENPreferencesStore preferenceStoreWithSecurityApplicationGroupIdentifier:SecurityApplicationGroupIdentifier] : [ENPreferencesStore defaultPreferenceStore];
 
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(storeClientFailedAuthentication:)
@@ -244,10 +274,9 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     self.isAuthenticated = YES;
     self.primaryAuthenticationToken = credentials.authenticationToken;
     
-    // We appear to have valid personal credentials, so populate the user object from cache,
-    // and pull up business credentials. Refresh the business credentials if necessary, and the user
-    // object always.
+    // We appear to have valid personal credentials, so populate the user object from cache
     self.user = [self.preferences decodedObjectForKey:ENSessionPreferencesUser];
+    self.businessUser = [self.preferences decodedObjectForKey:ENSessionPreferencesBusinessUser];
     
     [self performPostAuthentication];
 }
@@ -336,15 +365,49 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     // But when refreshing a session, eg on app restart, we don't want to sign out users just for network
     // errors, or transient problems.
     BOOL failuresAreFatal = (self.authenticationCompletion != nil);
-    
+
+    __weak typeof(self) weakSelf = self;
     [[self userStore] getUserWithSuccess:^(EDAMUser * user) {
+        __strong typeof(weakSelf) self = weakSelf;
         self.user = user;
         [self.preferences encodeObject:user forKey:ENSessionPreferencesUser];
         [self completeAuthenticationWithError:nil];
+        
+        if (!disableRefreshingNotebooksCacheOnLaunch) {
+            // refresh the notebook cache
+            [self listNotebooksWithCompletion:^(NSArray *notebooks, NSError *listNotebooksError) {
+                if (listNotebooksError) {
+                    ENSDKLogError(@"Error when listing notebooks: %@", listNotebooksError);
+                }
+                ENSDKLogInfo(@"Notebooks: %@", notebooks);
+            }];
+        }
+        
+        [self refreshUploadUsage];
     } failure:^(NSError * getUserError) {
         ENSDKLogError(@"Failed to get user info for user: %@", getUserError);
-        [self completeAuthenticationWithError:(failuresAreFatal ? getUserError : nil)];
+        [weakSelf completeAuthenticationWithError:(failuresAreFatal ? getUserError : nil)];
     }];
+}
+
+- (void)refreshUploadUsage {
+    __weak typeof(self) weakSelf = self;
+    [self.primaryNoteStore getSyncStateWithSuccess:^(EDAMSyncState *syncState) {
+        __strong typeof(weakSelf) self = weakSelf;
+        self.personalUploadUsage = syncState.uploaded.longLongValue;
+        self.personalUploadLimit = self.user.accounting.uploadLimit.longLongValue;
+    } failure:^(NSError *error) {
+        ENSDKLogError(@"Failed to get personal sync state");
+    }];
+    if (self.isBusinessUser) {
+        [self.businessNoteStore getSyncStateWithSuccess:^(EDAMSyncState *syncState) {
+            __strong typeof(weakSelf) self = weakSelf;
+            self.businessUploadUsage = syncState.uploaded.longLongValue;
+            self.businessUploadLimit = self.businessUser.accounting.uploadLimit.longLongValue;
+        } failure:^(NSError *error) {
+            ENSDKLogError(@"Failed to get business sync state");
+        }];
+    }
 }
 
 - (void)completeAuthenticationWithError:(NSError *)error
@@ -419,10 +482,11 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     // normal session state.
     if (self.isAuthenticated) {
         self.userStorePendingRevocation = self.userStore;
+        __weak typeof(self) weakSelf = self;
         [self.userStorePendingRevocation revokeLongSessionWithAuthenticationToken:self.primaryAuthenticationToken success:^{
-            self.userStorePendingRevocation = nil;
+            weakSelf.userStorePendingRevocation = nil;
         } failure:^(NSError *error) {
-            self.userStorePendingRevocation = nil;
+            weakSelf.userStorePendingRevocation = nil;
         }];
     }
     
@@ -492,28 +556,40 @@ static NSString * DeveloperToken, * NoteStoreUrl;
         return;
     }
     
-    self.notebooksCache = nil;
-    self.notebooksCacheDate = nil;
+    [self listNotebooks_cleanCache];
     
     ENSessionListNotebooksContext * context = [[ENSessionListNotebooksContext alloc] init];
     context.completion = completion;
     context.resultNotebooks = [[NSMutableArray alloc] init];
-    context.guidsToResultNotebooks = [[NSMutableDictionary alloc] init];
     [self listNotebooks_listNotebooksWithContext:context];
+}
+
+- (void)listWritableNotebooksWithCompletion:(ENSessionListNotebooksCompletionHandler)completion
+{
+    [self listNotebooksWithCompletion:^(NSArray *notebooks, NSError *listNotebooksError) {
+        NSMutableArray *writableNotebooks = [NSMutableArray array];
+        for (ENNotebook *notebook in notebooks) {
+            if ([notebook allowsWriting]) {
+                [writableNotebooks addObject:notebook];
+            }
+        }
+        completion(writableNotebooks, listNotebooksError);
+    }];
 }
 
 - (void)listNotebooks_listNotebooksWithContext:(ENSessionListNotebooksContext *)context
 {
+    __weak typeof(self) weakSelf = self;
     [self.primaryNoteStore listNotebooksWithSuccess:^(NSArray * notebooks) {
         // Populate the result list with personal notebooks.
         for (EDAMNotebook * notebook in notebooks) {
             ENNotebook * result = [[ENNotebook alloc] initWithNotebook:notebook];
             [context.resultNotebooks addObject:result];
-            [context.guidsToResultNotebooks setObject:result forKey:notebook.guid];
         }
         // Now get any shared notebooks records for the personal account.
-        [self listNotebooks_listSharedNotebooksWithContext:context];
+        [weakSelf listNotebooks_listSharedNotebooksWithContext:context];
     } failure:^(NSError * error) {
+        __strong typeof(weakSelf) self = weakSelf;
         if ([self isErrorDueToRestrictedAuth:error]) {
             // App has a single notebook auth token, so try getting linked notebooks.
             [self listNotebooks_listLinkedNotebooksWithContext:context];
@@ -526,24 +602,20 @@ static NSString * DeveloperToken, * NoteStoreUrl;
 
 - (void)listNotebooks_listSharedNotebooksWithContext:(ENSessionListNotebooksContext *)context
 {
+    __weak typeof(self) weakSelf = self;
     [self.primaryNoteStore listSharedNotebooksWithSuccess:^(NSArray * sharedNotebooks) {
-        // For each shared notebook, find its corresponding actual notebook, and flag that as
-        // shared.
-        for (EDAMSharedNotebook * sharedNotebook in sharedNotebooks) {
-            ENNotebook * userNotebook = [context.guidsToResultNotebooks objectForKey:sharedNotebook.notebookGuid];
-            userNotebook.isShared = YES;
-        }
-        context.guidsToResultNotebooks = nil;
-        [self listNotebooks_listLinkedNotebooksWithContext:context];
+        [weakSelf listNotebooks_listLinkedNotebooksWithContext:context];
     } failure:^(NSError *error) {
         ENSDKLogError(@"Error from listSharedNotebooks in user's store: %@", error);
-        [self listNotebooks_completeWithContext:context error:error];
+        [weakSelf listNotebooks_completeWithContext:context error:error];
     }];
 }
 
 - (void)listNotebooks_listLinkedNotebooksWithContext:(ENSessionListNotebooksContext *)context
 {
+    __weak typeof(self) weakSelf = self;
     [self.primaryNoteStore listLinkedNotebooksWithSuccess:^(NSArray *linkedNotebooks) {
+        __strong typeof(weakSelf) self = weakSelf;
         if (linkedNotebooks.count == 0) {
             [self listNotebooks_prepareResultsWithContext:context];
         } else {
@@ -567,6 +639,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
 
 - (void)listNotebooks_fetchSharedBusinessNotebooksWithContext:(ENSessionListNotebooksContext *)context
 {
+    __weak typeof(self) weakSelf = self;
     [self.businessNoteStore listSharedNotebooksWithSuccess:^(NSArray *sharedNotebooks) {
         // Run through the results, and set each notebook keyed by its shareKey, which
         // is how we'll find corresponding linked notebooks.
@@ -578,15 +651,16 @@ static NSString * DeveloperToken, * NoteStoreUrl;
         }
         
         // Now continue on to grab all of the linked notebooks for the business.
-        [self listNotebooks_fetchBusinessNotebooksWithContext:context];
+        [weakSelf listNotebooks_fetchBusinessNotebooksWithContext:context];
     } failure:^(NSError *error) {
         ENSDKLogError(@"Error from listSharedNotebooks in business store: %@", error);
-        [self listNotebooks_completeWithContext:context error:error];
+        [weakSelf listNotebooks_completeWithContext:context error:error];
     }];
 }
 
 - (void)listNotebooks_fetchBusinessNotebooksWithContext:(ENSessionListNotebooksContext *)context
 {
+    __weak typeof(self) weakSelf = self;
     [self.businessNoteStore listNotebooksWithSuccess:^(NSArray *notebooks) {
         // Run through the results, and set each notebook keyed by its guid, which
         // is how we'll find it from the shared notebook.
@@ -594,10 +668,10 @@ static NSString * DeveloperToken, * NoteStoreUrl;
         for (EDAMNotebook * notebook in notebooks) {
             [context.businessNotebooks setObject:notebook forKey:notebook.guid];
         }
-        [self listNotebooks_processBusinessNotebooksWithContext:context];
+        [weakSelf listNotebooks_processBusinessNotebooksWithContext:context];
     } failure:^(NSError *error) {
         ENSDKLogError(@"Error from listNotebooks in business store: %@", error);
-        [self listNotebooks_completeWithContext:context error:error];
+        [weakSelf listNotebooks_completeWithContext:context error:error];
     }];
 }
 
@@ -612,15 +686,6 @@ static NSString * DeveloperToken, * NoteStoreUrl;
             // This linked notebook corresponds to a business notebook.
             EDAMNotebook * businessNotebook = [context.businessNotebooks objectForKey:sharedNotebook.notebookGuid];
             ENNotebook * result = [[ENNotebook alloc] initWithSharedNotebook:sharedNotebook forLinkedNotebook:linkedNotebook withBusinessNotebook:businessNotebook];
-
-            // Figure out if the business notebook is "shared". There are three cases here, all of which mean "shared": (1) I explicitly shared to individuals,
-            // (2) I shared with the whole business and (3) I joined someone else's shared business notebook. The first (and third) are indicated by more than
-            // one shared notebook record for this notebook GUID. The second one (if not covered by the first) is indicated by the presence of a business notebook
-            // on the notebook.
-            if ([context.sharedBusinessNotebookGuids countForObject:sharedNotebook.notebookGuid] > 1 ||
-                businessNotebook.businessNotebook != nil) {
-                result.isShared = YES;
-            }
             
             [context.resultNotebooks addObject:result];
             [context.linkedPersonalNotebooks removeObjectIdenticalTo:linkedNotebook]; // OK since we're enumerating a copy.
@@ -644,7 +709,8 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     context.pendingSharedNotebooks = context.linkedPersonalNotebooks.count;
     NSMutableDictionary * sharedNotebooks = [[NSMutableDictionary alloc] init];
     context.sharedNotebooks = sharedNotebooks;
-    
+
+    __weak typeof(self) weakSelf = self;
     for (EDAMLinkedNotebook * linkedNotebook in context.linkedPersonalNotebooks) {
         ENNoteStoreClient * noteStore = [self noteStoreForLinkedNotebook:linkedNotebook];
         if (linkedNotebook.sharedNotebookGlobalId == nil) {
@@ -655,23 +721,28 @@ static NSString * DeveloperToken, * NoteStoreUrl;
                                                                                    publicUri:linkedNotebook.uri
                                                                                      success:^(EDAMNotebook *sharedNotebook) {
                                                                                          [sharedNotebooks setObject:sharedNotebook forKey:linkedNotebook.guid];
-                                                                                         [self listNotebooks_completePendingSharedNotebookWithContext:context];
+                                                                                         [weakSelf listNotebooks_completePendingSharedNotebookWithContext:context];
                                                                                      } failure:^(NSError *error) {
                                                                                          context.error = error;
-                                                                                         [self listNotebooks_completePendingSharedNotebookWithContext:context];
+                                                                                         [weakSelf listNotebooks_completePendingSharedNotebookWithContext:context];
                                                                                      }];
                                                   } failure:^(NSError *error) {
                                                       context.error = error;
-                                                      [self listNotebooks_completePendingSharedNotebookWithContext:context];
+                                                      [weakSelf listNotebooks_completePendingSharedNotebookWithContext:context];
                                                   }];
         } else {
             [noteStore getSharedNotebookByAuthWithSuccess:^(EDAMSharedNotebook * sharedNotebook) {
                 // Add the shared notebook to the map.
                 [sharedNotebooks setObject:sharedNotebook forKey:linkedNotebook.guid];
-                [self listNotebooks_completePendingSharedNotebookWithContext:context];
+                [weakSelf listNotebooks_completePendingSharedNotebookWithContext:context];
             } failure:^(NSError * error) {
+                // failed to get the sharedNotebook from the service
+                // the shared notebook could be deleted from the owner
+                // we remove the linked notebook record from the context so it won't be listed in the result
+                ENSDKLogError(@"Failed to get shared notebook for linked notebook record %@", linkedNotebook);
+                [context.linkedPersonalNotebooks removeObject:linkedNotebook];
                 context.error = error;
-                [self listNotebooks_completePendingSharedNotebookWithContext:context];
+                [weakSelf listNotebooks_completePendingSharedNotebookWithContext:context];
             }];
         }
     }
@@ -686,13 +757,6 @@ static NSString * DeveloperToken, * NoteStoreUrl;
 
 - (void)listNotebooks_processSharedNotebooksWithContext:(ENSessionListNotebooksContext *)context
 {
-    if (context.error) {
-        // One of the calls failed. Currently we treat this as a hard error, and fail the entire call.
-        ENSDKLogError(@"Error from getSharedNotebookByAuth against a personal linked notebook: %@", context.error);
-        [self listNotebooks_completeWithContext:context error:context.error];
-        return;
-    }
-    
     // Process the results
     for (EDAMLinkedNotebook * linkedNotebook in context.linkedPersonalNotebooks) {
         id sharedNotebook = [context.sharedNotebooks objectForKey:linkedNotebook.guid];
@@ -704,7 +768,6 @@ static NSString * DeveloperToken, * NoteStoreUrl;
             // public notebook
             result = [[ENNotebook alloc] initWithPublicNotebook:sharedNotebook forLinkedNotebook:linkedNotebook];
         }
-        result.isShared = YES;
         [context.resultNotebooks addObject:result];
     }
     
@@ -740,6 +803,12 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     self.notebooksCacheDate = [NSDate date];
     
     context.completion(context.resultNotebooks, error);
+}
+
+- (void)listNotebooks_cleanCache
+{
+    self.notebooksCache = nil;
+    self.notebooksCacheDate = nil;
 }
 
 #pragma mark - uploadNote
@@ -800,7 +869,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     // the sizes are a function of the user's service level, which can change.
     if (![note validateForLimits]) {
         ENSDKLogError(@"Note failed limits validation. Cannot upload. %@", self);
-        completion(nil, [NSError errorWithDomain:ENErrorDomain code:ENErrorCodeLimitReached userInfo:nil]);
+        completion(nil, [ENError noteSizeLimitReachedError]);
     }
     
     ENSessionUploadNoteContext * context = [[ENSessionUploadNoteContext alloc] init];
@@ -877,15 +946,15 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     context.note.updated = @([[NSDate date] edamTimestamp]);
     
     context.note.guid = context.refToReplace.guid;
-    context.note.active = @YES;
     
     if (context.progress) {
         context.noteStore.uploadProgressHandler = context.progress;
     }
-    
+
+    __weak typeof(self) weakSelf = self;
     [context.noteStore updateNote:context.note success:^(EDAMNote * resultNote) {
         context.noteRef = context.refToReplace; // The result by definition has the same ref.
-        [self uploadNote_completeWithContext:context error:nil];
+        [weakSelf uploadNote_completeWithContext:context error:nil];
     } failure:^(NSError *error) {
         if ([error.userInfo[@"parameter"] isEqualToString:@"Note.guid"]) {
             // We tried to replace a note that isn't there anymore. Now we look at the replacement policy.
@@ -902,19 +971,21 @@ static NSString * DeveloperToken, * NoteStoreUrl;
                 // note store is less predictable than defaulting to the default overall. In practice, this
                 // works out the same most of the time. (For app notebook apps, it'll end up in the app notebook
                 // anyway of course.)
-                [self uploadNote_determineDestinationWithContext:context];
+                [weakSelf uploadNote_determineDestinationWithContext:context];
                 return;
             }
         }
         ENSDKLogError(@"Failed to updateNote for uploadNote: %@", error);
-        [self uploadNote_completeWithContext:context error:error];
+        [weakSelf uploadNote_completeWithContext:context error:error];
     }];
 }
 
 - (void)uploadNote_findLinkedAppNotebookWithContext:(ENSessionUploadNoteContext *)context
 {
     // We know the app notebook is linked. List linked notebooks; we expect to find a single result.
+    __weak typeof(self) weakSelf = self;
     [self.primaryNoteStore listLinkedNotebooksWithSuccess:^(NSArray * linkedNotebooks) {
+        __strong typeof(weakSelf) self = weakSelf;
         if (linkedNotebooks.count < 1) {
             ENSDKLogInfo(@"Cannot find linked app notebook. Perhaps user deleted it?");
             // Uh-oh; there's no destination to use. We have to fail the request.
@@ -941,7 +1012,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
         ENSDKLogInfo(@"Failed to listLinkedNotebooks for uploadNote; turning into NotFound: %@", error);
         // Uh-oh; there's no destination to use. We have to fail the request.
         error = [NSError errorWithDomain:ENErrorDomain code:ENErrorCodeNotFound userInfo:nil];
-        [self uploadNote_completeWithContext:context error:error];
+        [weakSelf uploadNote_completeWithContext:context error:error];
     }];
 }
 
@@ -949,7 +1020,9 @@ static NSString * DeveloperToken, * NoteStoreUrl;
 {
     EDAMLinkedNotebook * linkedNotebook = [self.preferences decodedObjectForKey:ENSessionPreferencesLinkedAppNotebook];
     ENNoteStoreClient * linkedNoteStore = [self noteStoreForLinkedNotebook:linkedNotebook];
+    __weak typeof(self) weakSelf = self;
     [linkedNoteStore getSharedNotebookByAuthWithSuccess:^(EDAMSharedNotebook *sharedNotebook) {
+        __strong typeof(weakSelf) self = weakSelf;
         if (sharedNotebook) {
             // Persist the shared notebook record.
             [self.preferences encodeObject:sharedNotebook forKey:ENSessionPreferencesSharedAppNotebook];
@@ -966,7 +1039,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
         ENSDKLogInfo(@"Failed to getSharedNotebookByAuth for uploadNote; turning into NotFound: %@", error);
         // Uh-oh; there's no destination to use. We have to fail the request.
         error = [NSError errorWithDomain:ENErrorDomain code:ENErrorCodeNotFound userInfo:nil];
-        [self uploadNote_completeWithContext:context error:error];
+        [weakSelf uploadNote_completeWithContext:context error:error];
     }];
 }
 
@@ -983,13 +1056,14 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     if (context.progress) {
         context.noteStore.uploadProgressHandler = context.progress;
     }
+    __weak typeof(self) weakSelf = self;
     [context.noteStore createNote:context.note success:^(EDAMNote * resultNote) {
         context.noteRef.guid = resultNote.guid;
-        [self uploadNote_completeWithContext:context error:nil];
+        [weakSelf uploadNote_completeWithContext:context error:nil];
     } failure:^(NSError * error) {
         context.noteRef = nil;
         ENSDKLogError(@"Failed to createNote for uploadNote: %@", error);
-        [self uploadNote_completeWithContext:context error:error];
+        [weakSelf uploadNote_completeWithContext:context error:error];
     }];
 }
 
@@ -1015,7 +1089,9 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     }
 
     ENNoteStoreClient * noteStore = [self noteStoreForNoteRef:noteRef];
+    __weak typeof(self) weakSelf = self;
     [noteStore shareNoteWithGuid:noteRef.guid success:^(NSString * noteKey) {
+        __strong typeof(weakSelf) self = weakSelf;
         NSString * shardId = [self shardIdForNoteRef:noteRef];
         NSString * shareUrl = [ENShareURLHelper shareURLStringForNoteGUID:noteRef.guid
                                                                   shardId:shardId
@@ -1053,7 +1129,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     } failure:^(NSError * error) {
         ENSDKLogError(@"Failed to deleteNote: %@", error);
         if (completion) {
-            completion(error);;
+            completion(error);
         }
     }];
 }
@@ -1086,10 +1162,10 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     
     // Validate the scope and sort arguments.
     if (notebook && scope != ENSessionSearchScopeNone) {
-        ENSDKLogError(@"No search scope necessary if notebook provided.");
+        ENSDKLogInfo(@"No search scope necessary if notebook provided.");
         scope = ENSessionSearchScopeNone;
     } else if (!notebook && scope == ENSessionSearchScopeNone) {
-        ENSDKLogError(@"Search scope or notebook must be specified. Defaulting to personal scope.");
+        ENSDKLogInfo(@"Search scope or notebook must be specified. Defaulting to personal scope.");
         scope = ENSessionSearchScopeDefault;
     }
     
@@ -1175,14 +1251,14 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     // authenticating to other note stores. But it's also true that a findNotes may well be followed
     // quickly by a fetchNote(s), which is going to require the full notebook list anyway, and by then
     // it'll be cached.
-    
+    __weak typeof(self) weakSelf = self;
     [self listNotebooksWithCompletion:^(NSArray *notebooks, NSError *listNotebooksError) {
         if (notebooks) {
             context.allNotebooks = notebooks;
-            [self findNotes_findInPersonalScopeWithContext:context];
+            [weakSelf findNotes_findInPersonalScopeWithContext:context];
         } else {
             ENSDKLogError(@"findNotes: Failed to list notebooks. %@", listNotebooksError);
-            [self findNotes_completeWithContext:context error:listNotebooksError];
+            [weakSelf findNotes_completeWithContext:context error:listNotebooksError];
         }
     }];
 }
@@ -1205,21 +1281,22 @@ static NSString * DeveloperToken, * NoteStoreUrl;
         skipPersonalScope = YES;
     }
 
-    // If we're skipping personal scope, proceed directly to busines scope.
+    // If we're skipping personal scope, proceed directly to business scope.
     if (skipPersonalScope) {
         [self findNotes_findInBusinessScopeWithContext:context];
         return;
     }
-    
+
+    __weak typeof(self) weakSelf = self;
     [self.primaryNoteStore findNotesMetadataWithFilter:context.noteFilter
                                             maxResults:context.maxResults
                                             resultSpec:context.resultSpec
                                                success:^(NSArray *notesMetadataList) {
                                                    [context.findMetadataResults addObjectsFromArray:notesMetadataList];
-                                                   [self findNotes_findInBusinessScopeWithContext:context];
+                                                   [weakSelf findNotes_findInBusinessScopeWithContext:context];
                                                } failure:^(NSError *error) {
                                                    ENSDKLogError(@"findNotes: Failed to find notes (personal). %@", error);
-                                                   [self findNotes_completeWithContext:context error:error];
+                                                   [weakSelf findNotes_completeWithContext:context error:error];
                                                }];
 }
 
@@ -1234,6 +1311,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
         return;
     }
 
+    __weak typeof(self) weakSelf = self;
     [self.businessNoteStore findNotesMetadataWithFilter:context.noteFilter
                                              maxResults:context.maxResults
                                              resultSpec:context.resultSpec
@@ -1244,8 +1322,9 @@ static NSString * DeveloperToken, * NoteStoreUrl;
                                                     // determine if we're worried about an inability to map back to notebooks.
                                                     context.resultGuidsFromBusiness = [NSSet setWithArray:[notesMetadataList valueForKeyPath:@"guid"]];
                                                     
-                                                    [self findNotes_findInLinkedScopeWithContext:context];
+                                                    [weakSelf findNotes_findInLinkedScopeWithContext:context];
                                                 } failure:^(NSError *error) {
+                                                    __strong typeof(weakSelf) self = weakSelf;
                                                     if ([self isErrorDueToRestrictedAuth:error]) {
                                                         // This is a business user, but apparently has an app notebook restriction that's
                                                         // not in the business. Go look in linked scope.
@@ -1262,7 +1341,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     // Skip linked scope if scope notebook is not a personal linked notebook, or if the
     // linked scope is not included.
     if (context.scopeNotebook) {
-        if (!context.scopeNotebook.isLinked || !context.scopeNotebook.isBusinessNotebook) {
+        if (!context.scopeNotebook.isLinked || context.scopeNotebook.isBusinessNotebook) {
             [self findNotes_processResultsWithContext:context];
             return;
         }
@@ -1298,16 +1377,23 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     [context.linkedNotebooksToSearch removeObjectAtIndex:0];
     
     ENNoteStoreClient * noteStore = [self noteStoreForLinkedNotebook:notebook.linkedNotebook];
-    [noteStore findNotesMetadataWithFilter:context.noteFilter
+    EDAMNoteFilter * noteFilter = [context.noteFilter copy];
+    if ([notebook isJoinedPublic]) {
+        // https://dev.evernote.com/doc/reference/NoteStore.html#Fn_NoteStore_findNotesMetadata
+        // to search joined public notebook, the auth token can be nil, but notebookGuid must be set
+        noteFilter.notebookGuid = notebook.guid;
+    }
+    __weak typeof(self) weakSelf = self;
+    [noteStore findNotesMetadataWithFilter:noteFilter
                                 maxResults:context.maxResults
                                 resultSpec:context.resultSpec
                                    success:^(NSArray *notesMetadataList) {
                                        // Do it again with the next linked notebook in the list.
                                        [context.findMetadataResults addObjectsFromArray:notesMetadataList];
-                                       [self findNotes_nextFindInLinkedScopeWithContext:context];
+                                       [weakSelf findNotes_nextFindInLinkedScopeWithContext:context];
                                    } failure:^(NSError *error) {
                                        ENSDKLogError(@"findNotes: Failed to find notes (linked). notebook = %@; %@", notebook, error);
-                                       [self findNotes_completeWithContext:context error:error];
+                                       [weakSelf findNotes_completeWithContext:context error:error];
                                    }];
 }
 
@@ -1522,6 +1608,17 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     });
 }
 
+#pragma mark - Interaction with Evernote app
+
+- (BOOL)viewNoteInEvernote:(ENNoteRef *)noteRef {
+    if (IsEvernoteInstalled() == NO) {
+        return NO;
+    }
+    
+    NSString *viewNoteURLScheme = [NSString stringWithFormat:@"evernote:///view/%d/%@/%@/%@/", self.userID, [self shardIdForNoteRef:noteRef], noteRef.guid, noteRef.guid];
+    return [[UIApplication sharedApplication] openURL:[NSURL URLWithString:viewNoteURLScheme]];
+}
+
 #pragma mark - Private routines
 
 #pragma mark - API helpers
@@ -1587,6 +1684,8 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     if (!auth) {
         auth = [self.userStore authenticateToBusiness];
         [self.authCache setAuthenticationResultForBusiness:auth];
+        self.businessUser = auth.user;
+        [self.preferences encodeObject:self.businessUser forKey:ENSessionPreferencesBusinessUser];
     }
     return auth;
 }
@@ -1633,7 +1732,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     return _primaryNoteStore;
 }
 
-- (ENNoteStoreClient *)businessNoteStore
+- (ENBusinessNoteStoreClient *)businessNoteStore
 {
     if (!_businessNoteStore && [self isBusinessUser]) {
         ENBusinessNoteStoreClient * client = [ENBusinessNoteStoreClient noteStoreClientForBusiness];
@@ -1670,9 +1769,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     if ([notebook isBusinessNotebook]) {
         return [self businessNoteStore];
     } else if ([notebook isLinked]) {
-        ENLinkedNoteStoreClient *store = [ENLinkedNoteStoreClient noteStoreClientForLinkedNotebookRef:[ENLinkedNotebookRef linkedNotebookRefFromLinkedNotebook:notebook.linkedNotebook]];
-        store.delegate = self;
-        return store;
+        return [self noteStoreForLinkedNotebook:notebook.linkedNotebook];
     } else {
         return [self primaryNoteStore];
     }
@@ -1684,7 +1781,7 @@ static NSString * DeveloperToken, * NoteStoreUrl;
     if (noteRef.type == ENNoteRefTypePersonal) {
         return self.user.shardId;
     } else if (noteRef.type == ENNoteRefTypeBusiness) {
-        return self.businessShardId;
+        return self.businessUser.shardId;
     } else if (noteRef.type == ENNoteRefTypeShared) {
         return noteRef.linkedNotebook.shardId;
     }
@@ -1770,6 +1867,11 @@ static NSString * DeveloperToken, * NoteStoreUrl;
 {
     NSAssert(![NSThread isMainThread], @"Cannot authenticate to linked notebook on main thread");
     
+    // use nil token for joined public notebook
+    if (linkedNotebookRef.sharedNotebookGlobalId == nil) {
+        return nil;
+    }
+    
     // See if we have auth data already for this notebook.
     EDAMAuthenticationResult * auth = [self.authCache authenticationResultForLinkedNotebookGuid:linkedNotebookRef.guid];
     if (!auth) {
@@ -1817,6 +1919,29 @@ static NSString * DeveloperToken, * NoteStoreUrl;
         ENSDKLogError(@"Primary note store operation failed authentication. Unauthenticating.");
         [self unauthenticate];
     }
+}
+
+#pragma mark - Keychain Sharing Helpers
+
+// programatically find bundleSeedId/App ID Prefix
++ (NSString *)bundleSeedID {
+    NSDictionary *query = [NSDictionary dictionaryWithObjectsAndKeys:
+                           (__bridge NSString *)kSecClassGenericPassword, (__bridge NSString *)kSecClass,
+                           @"bundleSeedID", kSecAttrAccount,
+                           @"", kSecAttrService,
+                           (id)kCFBooleanTrue, kSecReturnAttributes,
+                           nil];
+    CFDictionaryRef result = nil;
+    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, (CFTypeRef *)&result);
+    if (status == errSecItemNotFound)
+        status = SecItemAdd((__bridge CFDictionaryRef)query, (CFTypeRef *)&result);
+    if (status != errSecSuccess)
+        return nil;
+    NSString *accessGroup = [(__bridge NSDictionary *)result objectForKey:(__bridge NSString *)kSecAttrAccessGroup];
+    NSArray *components = [accessGroup componentsSeparatedByString:@"."];
+    NSString *bundleSeedID = [[components objectEnumerator] nextObject];
+    CFRelease(result);
+    return bundleSeedID;
 }
 
 @end

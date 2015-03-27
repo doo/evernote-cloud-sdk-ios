@@ -27,6 +27,8 @@
  */
 
 #import "ENCredentials.h"
+#import "ENSession.h"
+#import "ENSDKPrivate.h"
 #import "ENSSKeychain.h"
 #import "Analytics.h"
 
@@ -77,10 +79,10 @@ authenticationResult:(EDAMAuthenticationResult *)authenticationResult
 {
     // auth token gets saved to the keychain
     NSError *error;
-    BOOL success = [ENSSKeychain setPassword:_authenticationToken
-                                  forService:self.host
-                                     account:self.edamUserId
-                                       error:&error];
+    ENSSKeychainQuery *query = [self keychainQuery];
+    query.password = _authenticationToken;
+
+    BOOL success = [query save:&error];
     if (!success) {
         [Analytics trackEvernoteKeychainSaveError:error];
         NSLog(@"Error saving to keychain: %@ %ld", error, (long)error.code);
@@ -91,13 +93,16 @@ authenticationResult:(EDAMAuthenticationResult *)authenticationResult
 
 - (void)deleteFromKeychain
 {
-    [ENSSKeychain deletePasswordForService:self.host account:self.edamUserId];
+    [[self keychainQuery] deleteItem:nil];
 }
 
 - (NSString *)authenticationToken
 {
     NSError *error;
-    NSString *token = [ENSSKeychain passwordForService:self.host account:self.edamUserId error:&error];
+    ENSSKeychainQuery* query = [self keychainQuery];
+    [query fetch:&error];
+
+    NSString *token = [query password];
     if (!token) {
         NSLog(@"Error getting password from keychain: %@", error);
     }
@@ -118,6 +123,20 @@ authenticationResult:(EDAMAuthenticationResult *)authenticationResult
     }
     
     return YES;
+}
+
+#pragma mark - ENSSKeychain Helpers
+
+-(ENSSKeychainQuery*) keychainQuery
+{
+    [ENSSKeychain setAccessibilityType:kSecAttrAccessibleAlways];
+    ENSSKeychainQuery *query = [[ENSSKeychainQuery alloc] init];
+    query.service = self.host;
+    query.account = self.edamUserId;
+    if ([ENSession keychainAccessGroup]) {
+        query.accessGroup = [ENSession keychainAccessGroup];
+    }
+    return query;
 }
 
 #pragma mark - NSCoding
