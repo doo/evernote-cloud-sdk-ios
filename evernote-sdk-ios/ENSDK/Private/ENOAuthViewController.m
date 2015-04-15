@@ -111,10 +111,17 @@
 }
 
 - (void)onePasswordButtonTapped:(id)sender {
+    self.navigationItem.leftBarButtonItem.enabled = NO;
+    self.navigationItem.rightBarButtonItem.enabled = NO;
+    self.webView.userInteractionEnabled = NO;
     [[OnePasswordExtension sharedExtension] fillLoginIntoWebView:self.webView
                                                forViewController:self
                                                           sender:sender
-                                                      completion:nil];
+                                                      completion:^(BOOL success, NSError *error) {
+                                                          self.webView.userInteractionEnabled = YES;
+                                                          self.navigationItem.leftBarButtonItem.enabled = YES;
+                                                          self.navigationItem.rightBarButtonItem.enabled = YES;
+                                                      }];
 }
 
 - (void)cancel:(id)sender
