@@ -241,7 +241,7 @@ static BOOL disableRefreshingNotebooksCacheOnLaunch;
 
 - (void)startup
 {
-    self.logger = [[ENSessionDefaultLogger alloc] init];
+//    self.logger = [[ENSessionDefaultLogger alloc] init];
     self.preferences = SecurityApplicationGroupIdentifier ? [ENPreferencesStore preferenceStoreWithSecurityApplicationGroupIdentifier:SecurityApplicationGroupIdentifier] : [ENPreferencesStore defaultPreferenceStore];
 
     [[NSNotificationCenter defaultCenter] addObserver:self
