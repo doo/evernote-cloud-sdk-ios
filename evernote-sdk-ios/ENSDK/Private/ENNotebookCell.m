@@ -70,6 +70,7 @@
 }
 
 - (void)setNotebook:(ENNotebook *)notebook {
+    _notebook = notebook;
     [self.textLabel setText:notebook.name];
     if ([notebook isBusinessNotebook] || ![notebook isOwnedByUser]) {
         [self.detailTextLabel setText:notebook.ownerDisplayName];

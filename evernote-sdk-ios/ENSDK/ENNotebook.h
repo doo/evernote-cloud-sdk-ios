@@ -53,7 +53,7 @@
  *  Either it is a notebook that the current user created and shared,
  *  or one that was shared by someone else but joined by the current user.
  */
-@property (nonatomic, readonly) BOOL isShared;
+@property (nonatomic, assign, readonly, getter=isShared) BOOL shared;
 
 /**
  *  A flag indicating if this notebook is the user's own shared notebook with others

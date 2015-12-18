@@ -36,7 +36,7 @@
 
 @interface ENBusinessNoteStoreClient : ENNoteStoreClient
 @property (nonatomic, weak) id<ENBusinessNoteStoreClientDelegate> delegate;
-@property (nonatomic, copy) NSString * noteStoreUrl;
+@property (nonatomic, copy, readonly) NSString * noteStoreUrl;
 + (instancetype)noteStoreClientForBusiness;
 
 /** Asks the business to make a business notebook with the provided name, and the user joins the notebook.
