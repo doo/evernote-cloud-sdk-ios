@@ -88,7 +88,7 @@ typedef void (^ENMLHTMLCompletionBlock)(NSString* html, NSError *error);
 }
 
 #pragma mark -
-#pragma NSXMLParser delegate functions
+#pragma mark NSXMLParser delegate functions
 
 - (void)parserDidEndDocument:(NSXMLParser *)parser {
     [self.htmlWriter close];
@@ -157,7 +157,7 @@ typedef void (^ENMLHTMLCompletionBlock)(NSString* html, NSError *error);
 }
 
 #pragma mark -
-#pragma Internal functions
+#pragma mark Internal functions
 
 - (void) writeResource:(EDAMResource*)resource
         withAttributes:(NSDictionary *)attributes
