@@ -30,7 +30,7 @@
 #import "ENSession.h"
 #import "ENSDKPrivate.h"
 #import "ENSSKeychain.h"
-#import "Analytics.h"
+#import "Scanbot-Swift.h"
 
 @interface ENCredentials()
 
@@ -84,7 +84,7 @@ authenticationResult:(EDAMAuthenticationResult *)authenticationResult
 
     BOOL success = [query save:&error];
     if (!success) {
-        [Analytics trackEvernoteKeychainSaveError:error];
+        [[[DocumentsTracker alloc] init] trackEvernoteKeychainSaveWith:error];
         NSLog(@"Error saving to keychain: %@ %ld", error, (long)error.code);
         return NO;
     } 
