@@ -308,6 +308,7 @@ static BOOL disableRefreshingNotebooksCacheOnLaunch;
 }
 
 - (void)authenticateWithViewController:(UIViewController *)viewController
+                  navigationController:(UINavigationController *)controller
                     preferRegistration:(BOOL)preferRegistration
                             completion:(ENSessionAuthenticateCompletionHandler)completion
 {
@@ -354,7 +355,8 @@ static BOOL disableRefreshingNotebooksCacheOnLaunch;
     // web auth only.
     self.authenticator.useWebAuthenticationOnly = (SessionHostOverride != nil);
     
-    [self.authenticator authenticateWithViewController:viewController];
+    [self.authenticator authenticateWithViewController:viewController
+                                  navigationController:controller];
 }
 
 - (void)performPostAuthentication
@@ -1505,7 +1507,7 @@ static BOOL disableRefreshingNotebooksCacheOnLaunch;
         result.created = [NSDate dateWithEDAMTimestamp:[metadata.created longLongValue]];
         result.updated = [NSDate dateWithEDAMTimestamp:[metadata.updated longLongValue]];
         result.updateSequenceNum = [metadata.updateSequenceNum intValue];
-        result.hasResources = (metadata.largestResourceSize > 0)?YES:NO;
+        result.hasResources = (metadata.largestResourceSize.intValue > 0)?YES:NO;
 
         [findNotesResults addObject:result];
         

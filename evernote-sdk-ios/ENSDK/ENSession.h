@@ -275,6 +275,7 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *  @param completion           A block to receive the result of the operation (an error if there was one).
  */
 - (void)authenticateWithViewController:(UIViewController *)viewController
+                  navigationController:(UINavigationController *)controller
                     preferRegistration:(BOOL)preferRegistration
                             completion:(ENSessionAuthenticateCompletionHandler)completion;
 

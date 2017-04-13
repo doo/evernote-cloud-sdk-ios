@@ -48,7 +48,8 @@ extern NSString * ENOAuthAuthenticatorAuthInfoAppNotebookIsLinked;
 @property (nonatomic, assign) BOOL useWebAuthenticationOnly;
 @property (nonatomic, assign) BOOL preferRegistration;
 
-- (void)authenticateWithViewController:(UIViewController *)viewController;
+- (void)authenticateWithViewController:(UIViewController *)viewController
+                  navigationController:(UINavigationController *)controller;
 
 - (BOOL)handleOpenURL:(NSURL *)url;
 @end

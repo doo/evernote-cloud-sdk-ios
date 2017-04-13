@@ -110,6 +110,7 @@ NSString * ENOAuthAuthenticatorAuthInfoAppNotebookIsLinked = @"ENOAuthAuthentica
 }
 
 - (void)authenticateWithViewController:(UIViewController *)viewController
+                  navigationController:(UINavigationController *)controller
 {
     NSAssert(!self.inProgress, @"Authenticator is a single-use-only object!");
     NSAssert(viewController, @"Must use valid viewController");
@@ -134,7 +135,10 @@ NSString * ENOAuthAuthenticatorAuthInfoAppNotebookIsLinked = @"ENOAuthAuthentica
     ENLoadingViewController * loading = [[ENLoadingViewController alloc] init];
     loading.delegate = self;
     
-    self.authenticationViewController = [[UINavigationController alloc] initWithRootViewController:loading];
+    
+    self.authenticationViewController = controller;
+    controller.viewControllers = @[loading];
+    
     if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
         self.authenticationViewController.modalPresentationStyle = UIModalPresentationFormSheet;
     }
