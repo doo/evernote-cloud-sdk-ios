@@ -60,3 +60,6 @@
 #import "ENXMLWriter.h"
 #import "NSRegularExpression+ENAGRegex.h"
 #import "NSString+EDAMNilAdditions.h"
+
+#import "ENSDKPrivate.h"
+#import "ENSSKeychain.h"
