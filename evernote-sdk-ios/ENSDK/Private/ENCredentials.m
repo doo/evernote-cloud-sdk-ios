@@ -28,9 +28,8 @@
 
 #import "ENCredentials.h"
 #import "ENSession.h"
-#import "ENSDKPrivate.h"
 #import "ENSSKeychain.h"
-#import "Scanbot-Swift.h"
+#import "ENSDKPrivate.h"
 
 @interface ENCredentials()
 
@@ -84,7 +83,6 @@ authenticationResult:(EDAMAuthenticationResult *)authenticationResult
 
     BOOL success = [query save:&error];
     if (!success) {
-        [[[DocumentsTracker alloc] init] trackEvernoteKeychainSaveWith:error];
         NSLog(@"Error saving to keychain: %@ %ld", error, (long)error.code);
         return NO;
     } 
@@ -129,7 +127,7 @@ authenticationResult:(EDAMAuthenticationResult *)authenticationResult
 
 -(ENSSKeychainQuery*) keychainQuery
 {
-    [ENSSKeychain setAccessibilityType:kSecAttrAccessibleAlways];
+    [ENSSKeychain setAccessibilityType:kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly];
     ENSSKeychainQuery *query = [[ENSSKeychainQuery alloc] init];
     query.service = self.host;
     query.account = self.edamUserId;

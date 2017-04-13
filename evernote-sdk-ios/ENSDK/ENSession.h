@@ -28,23 +28,27 @@
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-#import "ENSDK.h"
-#import "ENSDKLogging.h"
+
+NS_ASSUME_NONNULL_BEGIN
+
+@class ENSessionFindNotesResult;
+@class ENNotebook, ENNote, ENNoteRef, ENNoteSearch;
+@protocol ENSDKLogging;
 
 extern NSString * const ENSessionHostSandbox;
 
 extern NSString * const ENSessionDidAuthenticateNotification;
 extern NSString * const ENSessionDidUnauthenticateNotification;
 
-typedef void (^ENSessionAuthenticateCompletionHandler)(NSError * authenticateError);
-typedef void (^ENSessionListNotebooksCompletionHandler)(NSArray * notebooks, NSError * listNotebooksError);
+typedef void (^ENSessionAuthenticateCompletionHandler)(NSError *_Nullable authenticateError);
+typedef void (^ENSessionListNotebooksCompletionHandler)(NSArray<ENNotebook *> *_Nullable notebooks, NSError *_Nullable listNotebooksError);
 typedef void (^ENSessionProgressHandler)(CGFloat progress);
-typedef void (^ENSessionUploadNoteCompletionHandler)(ENNoteRef * noteRef, NSError * uploadNoteError);
-typedef void (^ENSessionShareNoteCompletionHandler)(NSString * url, NSError * shareNoteError);
-typedef void (^ENSessionDeleteNoteCompletionHandler)(NSError * deleteNoteError);
-typedef void (^ENSessionFindNotesCompletionHandler)(NSArray * findNotesResults, NSError * findNotesError);
-typedef void (^ENSessionDownloadNoteCompletionHandler)(ENNote * note, NSError * downloadNoteError);
-typedef void (^ENSessionDownloadNoteThumbnailCompletionHandler)(UIImage * thumbnail, NSError * downloadNoteThumbnailError);
+typedef void (^ENSessionUploadNoteCompletionHandler)(ENNoteRef *_Nullable noteRef, NSError *_Nullable uploadNoteError);
+typedef void (^ENSessionShareNoteCompletionHandler)(NSString *_Nullable url, NSError *_Nullable shareNoteError);
+typedef void (^ENSessionDeleteNoteCompletionHandler)(NSError *_Nullable deleteNoteError);
+typedef void (^ENSessionFindNotesCompletionHandler)(NSArray<ENSessionFindNotesResult *> *_Nullable findNotesResults, NSError *_Nullable findNotesError);
+typedef void (^ENSessionDownloadNoteCompletionHandler)(ENNote *_Nullable note, NSError *_Nullable downloadNoteError);
+typedef void (^ENSessionDownloadNoteThumbnailCompletionHandler)(UIImage *_Nullable thumbnail, NSError *_Nullable downloadNoteThumbnailError);
 
 /**
  *  A value indicating how the session should approach creating vs. updating existing notes when uploading.
@@ -139,11 +143,12 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *  Result record for -findNotesWithSearch...
  */
 @interface ENSessionFindNotesResult : NSObject
-@property (nonatomic, strong) ENNoteRef * noteRef;
-@property (nonatomic, strong) ENNotebook * notebook;
-@property (nonatomic, strong) NSString * title;
-@property (nonatomic, strong) NSDate * created;
-@property (nonatomic, strong) NSDate * updated;
+@property (nonatomic, strong, nullable) ENNoteRef * noteRef;
+@property (nonatomic, strong, nullable) ENNotebook * notebook;
+@property (nonatomic, strong, nullable) NSString * title;
+@property (nonatomic, strong, nullable) NSDate * created;
+@property (nonatomic, strong, nullable) NSDate * updated;
+@property (nonatomic) BOOL hasResources;
 @end
 
 /**
@@ -157,7 +162,7 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *  By default, output is directed to the console (via NSLog). You can replace this with your own
  *  logging object, or set it to nil to suppress all logging.
  */
-@property (nonatomic, strong) id<ENSDKLogging> logger;
+@property (nonatomic, strong, nullable) id<ENSDKLogging> logger;
 
 /**
  *  This is a string that is used when creating notes to uniquely identify your application. 
@@ -193,7 +198,7 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
 /**
  *  A string that can be used in UI to identify the business the user is a member of.
  */
-@property (nonatomic, readonly) NSString * businessDisplayName;
+@property (nonatomic, readonly, nullable) NSString * businessDisplayName;
 
 /**
  *  Number of bytes the user's personal account have used for upload.
@@ -230,7 +235,7 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  */
 + (void)setSharedSessionConsumerKey:(NSString *)key
                      consumerSecret:(NSString *)secret
-                       optionalHost:(NSString *)host;
+                       optionalHost:(nullable NSString *)host;
 
 /**
  *  Set up the session object with a developer token and Note Store URL. This is an alternate
@@ -249,7 +254,7 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *
  *  @return The shared session object.
  */
-+ (ENSession *)sharedSession;
+@property (class, readonly, nonatomic) ENSession *sharedSession;
 
 /**
  *  Set to YES if the client would like to opt out from refreshing the notebooks cache on launch
@@ -279,6 +284,12 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
 - (void)unauthenticate;
 
 /**
+ *  Clear the preferences to a clean state, but not revoking the auth token
+ *  Useful for multi platform apps to keep their token on the service
+ */
+- (void)unauthenticateWithoutRevokingAccessToken;
+
+/**
  *  Should be called from your AppDelegate's -application:openURL:sourceApplication:annotation: to 
  *  handle authentication via app switching.
  *
@@ -286,7 +297,7 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *
  *  @return Whether this method successfully handled this URL. (Non-Evernote URLs will return NO.)
  */
-- (BOOL)handleOpenURL:(NSURL *)url;
+- (BOOL)handleOpenURL:(NSURL *)url NS_SWIFT_NAME(handleOpenURL(_:));
 
 #pragma mark - Evernote functions
 
@@ -321,8 +332,8 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *  @param completion A block to receive the result of the operation (a note reference) or error.
  */
 - (void)uploadNote:(ENNote *)note
-          notebook:(ENNotebook *)notebook
-        completion:(ENSessionUploadNoteCompletionHandler)completion;
+          notebook:(nullable ENNotebook *)notebook
+        completion:(ENSessionUploadNoteCompletionHandler)completion NS_SWIFT_NAME(upload(_:notebook:completion:));
 
 /**
  *  Create a new note, or replace an existing note, in Evernote by uploading a note object.
@@ -333,13 +344,16 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *  @param noteToReplace (optional) For replace policies, the reference to the note to replace.
  *  @param progress      (optional) A block that will receive updates from 0.0 to 1.0 indicating upload progress.
  *  @param completion    A block to receive the result of the operation (a note reference) or error.
+ *
+ *  When updating an existing note with resources, the Evernote service will not recalculate the usage quota for the already uploaded resources.
+ *  See detailed explanation here https://github.com/evernote/evernote-cloud-sdk-ios/issues/106
  */
 - (void)uploadNote:(ENNote *)note
             policy:(ENSessionUploadPolicy)policy
-        toNotebook:(ENNotebook *)notebook
-     orReplaceNote:(ENNoteRef *)noteToReplace
-          progress:(ENSessionProgressHandler)progress
-        completion:(ENSessionUploadNoteCompletionHandler)completion;
+        toNotebook:(nullable ENNotebook *)notebook
+     orReplaceNote:(nullable ENNoteRef *)noteToReplace
+          progress:(nullable ENSessionProgressHandler)progress
+        completion:(ENSessionUploadNoteCompletionHandler)completion NS_SWIFT_NAME(upload(_:policy:to:orReplace:progress:completion:));
 
 /**
  *  Share an existing note, and creates a URL that allows access to it directly.
@@ -351,7 +365,7 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *  @param completion (optional) A block to recieve the result of the operation (a URL) or error.
  */
 - (void)shareNote:(ENNoteRef *)noteRef
-       completion:(ENSessionShareNoteCompletionHandler)completion;
+       completion:(nullable ENSessionShareNoteCompletionHandler)completion;
 
 /**
  *  Put an existing note in the user's trash. This does not permanently expunge the note.
@@ -360,7 +374,7 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *  @param completion (optional) A block to recieve an error if the operation fails.
  */
 - (void)deleteNote:(ENNoteRef *)noteRef
-        completion:(ENSessionDeleteNoteCompletionHandler)completion;
+        completion:(nullable ENSessionDeleteNoteCompletionHandler)completion;
 
 /**
  *  Find notes, based on given criteria, within the notebooks that the user has access to. This method results
@@ -374,8 +388,8 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *  @param maxResults The maximum number of results to return. Use zero (0) here to find all results.
  *  @param completion A block to receive the result of the operation (a list of result object) or error.
  */
-- (void)findNotesWithSearch:(ENNoteSearch *)noteSearch
-                 inNotebook:(ENNotebook *)notebook
+- (void)findNotesWithSearch:(nullable ENNoteSearch *)noteSearch
+                 inNotebook:(nullable ENNotebook *)notebook
                     orScope:(ENSessionSearchScope)scope
                   sortOrder:(ENSessionSortOrder)sortOrder
                  maxResults:(NSUInteger)maxResults
@@ -389,8 +403,8 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *  @param completion A block to receive the result of the operation (an ENNote object) or error.
  */
 - (void)downloadNote:(ENNoteRef *)noteRef
-            progress:(ENSessionProgressHandler)progress
-          completion:(ENSessionDownloadNoteCompletionHandler)completion;
+            progress:(nullable ENSessionProgressHandler)progress
+          completion:(ENSessionDownloadNoteCompletionHandler)completion NS_SWIFT_NAME(download(_:progress:completion:));
 
 /**
  *  Download the service-generated thumbnail image for a note.
@@ -413,7 +427,7 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *  @return No means the Evernote app is not installed or not available. Yes does not guarantee that this note is successfuly opened,
  *          as the user could have logged into another account in the Evernote app.
  */
-- (BOOL)viewNoteInEvernote:(ENNoteRef *)noteRef;
+- (BOOL)viewNoteInEvernote:(ENNoteRef *)noteRef NS_SWIFT_NAME(viewNoteInEvernote(_:));
 
 /**
  *  View this note in the Evernote app and call callbackURL when done
@@ -424,6 +438,14 @@ typedef NS_OPTIONS(NSUInteger, ENSessionSortOrder) {
  *  @return No means the Evernote app is not installed or not available. Yes does not guarantee that this note is successfuly opened,
  *          as the user could have logged into another account in the Evernote app.
  */
-- (BOOL)viewNoteInEvernote:(ENNoteRef *)noteRef callbackURL:(NSString *)callbackURL;
+- (BOOL)viewNoteInEvernote:(ENNoteRef *)noteRef callbackURL:(NSString *)callbackURL NS_SWIFT_NAME(viewNoteInEvernote(_:callbackURL:));
+
+#pragma mark - Custom Evernote login in your app
+
+@property (nonatomic, copy, nullable) NSString *customEvernoteLoginTitle;
+
+@property (nonatomic, copy, nullable) NSString *customEvernoteLoginDescription;
 
 @end
+
+NS_ASSUME_NONNULL_END

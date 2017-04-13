@@ -27,9 +27,12 @@
  */
 
 #import <Foundation/Foundation.h>
-#import <libxml/xmlstring.h>
 
-static inline NSString * NSStringFromXmlCharWithLength( const xmlChar * ch, size_t length) {
+NS_ASSUME_NONNULL_BEGIN
+
+typedef unsigned char xmlChar;
+
+static inline NSString *_Nullable NSStringFromXmlCharWithLength( const xmlChar *_Nullable ch, size_t length) {
   if (ch == NULL) {
     return (nil);
   }
@@ -39,7 +42,7 @@ static inline NSString * NSStringFromXmlCharWithLength( const xmlChar * ch, size
                                               encoding: NSUTF8StringEncoding]);
 }
 
-static inline NSString * NSStringFromXmlChar( const xmlChar * ch ) {
+static inline NSString *_Nullable NSStringFromXmlChar(const  xmlChar *_Nullable ch ) {
   if (ch == NULL) {
     return (nil);
   }
@@ -51,3 +54,5 @@ static inline NSString * NSStringFromXmlChar( const xmlChar * ch ) {
 static inline const xmlChar * xmlCharFromNSString( NSString *input ) {
   return (const xmlChar *)[input cStringUsingEncoding:NSUTF8StringEncoding];
 }
+
+NS_ASSUME_NONNULL_END

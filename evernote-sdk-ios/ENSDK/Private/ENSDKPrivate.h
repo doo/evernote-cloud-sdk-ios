@@ -26,7 +26,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#import <ENSDK/ENSDK.h>
+#import "EvernoteSDK.h"
 #import "ENSDKAdvanced.h"
 #import "ENLinkedNotebookRef.h"
 #import "ENNoteRefInternal.h"
@@ -78,7 +78,7 @@ extern NSString * const ENBootstrapProfileNameChina;
 
 @interface ENNote (Private)
 - (id)initWithServiceNote:(EDAMNote *)note;
-- (NSString *)content;
+- (NSString *)enmlContent;
 - (void)setGuid:(NSString *)guid;
 - (void)setEnmlContent:(NSString *)enmlContent;
 - (void)setResources:(NSArray *)resources;
@@ -108,7 +108,7 @@ extern NSString * const ENBootstrapProfileNameChina;
 - (void)findNotesMetadataWithFilter:(EDAMNoteFilter *)filter
                          maxResults:(NSUInteger)maxResults
                          resultSpec:(EDAMNotesMetadataResultSpec *)resultSpec
-                            success:(void(^)(NSArray *notesMetadataList))success
+                            success:(void(^)(NSArray<EDAMNoteMetadata *> *notesMetadataList))success
                             failure:(void(^)(NSError *error))failure;
 @end
 
