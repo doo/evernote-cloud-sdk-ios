@@ -682,7 +682,11 @@ NSString * ENOAuthAuthenticatorAuthInfoAppNotebookIsLinked = @"ENOAuthAuthentica
 }
 
 - (void)gotCallbackURL : (NSString*)callback {
-    NSURL* callbackURL = [NSURL URLWithString:callback];
+    NSString *callbackString = callback;
+    if (callback == nil) {
+        callbackString = @"";
+    }
+    NSURL* callbackURL = [NSURL URLWithString:callbackString];
     if(callbackURL == nil) {
         [self completeAuthenticationWithError:[NSError errorWithDomain:ENErrorDomain code:ENErrorCodeCancelled userInfo:nil]];
         return;
