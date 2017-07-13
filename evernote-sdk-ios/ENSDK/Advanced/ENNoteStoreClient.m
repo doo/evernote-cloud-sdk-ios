@@ -1023,7 +1023,7 @@
 }
 
 - (void)untagAllWithGuid:(EDAMGuid)guid
-                 success:(void(^)())success
+                 success:(void(^)(void))success
                  failure:(void(^)(NSError *error))failure
 {
     [self untagAllWithGuid:guid completion:^(NSError * _Nonnull error) {

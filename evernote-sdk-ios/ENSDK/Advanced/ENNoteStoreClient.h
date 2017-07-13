@@ -962,7 +962,7 @@ DEPRECATED_MSG_ATTRIBUTE("Use -createTag:completion: instead") NS_SWIFT_UNAVAILA
 DEPRECATED_MSG_ATTRIBUTE("Use -updateTag:completion: instead") NS_SWIFT_UNAVAILABLE("Deprecated");
 
 - (void)untagAllWithGuid:(EDAMGuid)guid
-                 success:(void(^)())success
+                 success:(void(^)(void))success
                  failure:(void(^)(NSError *error))failure
 DEPRECATED_MSG_ATTRIBUTE("Use -untagAllWithGuid:completion: instead") NS_SWIFT_UNAVAILABLE("Deprecated");
 
