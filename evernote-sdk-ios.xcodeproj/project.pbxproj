@@ -1428,6 +1428,7 @@
 			isa = PBXProject;
 			attributes = {
 				LastUpgradeCheck = 0940;
+				LastUpgradeCheck = 1010;
 				ORGANIZATIONNAME = "Evernote Corporation";
 				TargetAttributes = {
 					6D9D60B61E27940A001740D8 = {
